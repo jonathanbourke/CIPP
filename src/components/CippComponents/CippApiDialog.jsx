@@ -12,7 +12,7 @@ import { Stack } from "@mui/system";
 import { CippApiResults } from "./CippApiResults";
 import { ApiGetCall, ApiPostCall } from "../../api/ApiCall";
 import React, { useEffect, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm, useFormState } from "react-hook-form";
 import { useSettings } from "../../hooks/use-settings";
 import CippFormComponent from "./CippFormComponent";
 
@@ -27,6 +27,7 @@ export const CippApiDialog = (props) => {
     dialogAfterEffect,
     allowResubmit = false,
     children,
+    defaultvalues,
     ...other
   } = props;
   const router = useRouter();
@@ -38,12 +39,21 @@ export const CippApiDialog = (props) => {
   if (mdDown) {
     other.fullScreen = true;
   }
+
+  const formHook = useForm({
+    defaultValues: typeof defaultvalues === "function" ? defaultvalues(row) : defaultvalues || {},
+    mode: "onChange", // Enable real-time validation
+  });
+
+  // Get form state for validation
+  const { isValid } = useFormState({ control: formHook.control });
+
   useEffect(() => {
     if (createDialog.open) {
       setIsFormSubmitted(false);
-      formHook.reset();
+      formHook.reset(defaultvalues || {});
     }
-  }, [createDialog.open]);
+  }, [createDialog.open, defaultvalues]);
 
   const [getRequestInfo, setGetRequestInfo] = useState({
     url: "",
@@ -123,11 +133,16 @@ export const CippApiDialog = (props) => {
         return;
       }
 
-      const commonData = {
-        tenantFilter,
-        ...formData,
-        ...addedFieldData,
+      // Helper function to get the correct tenant filter for a row
+      const getRowTenantFilter = (rowData) => {
+        // If we're in AllTenants mode and the row has a Tenant property, use that
+        if (tenantFilter === "AllTenants" && rowData?.Tenant) {
+          return rowData.Tenant;
+        }
+        // Otherwise use the current tenant filter
+        return tenantFilter;
       };
+
       const processedActionData = processActionData(action.data, row, action.replacementBehaviour);
 
       if (!processedActionData || Object.keys(processedActionData).length === 0) {
@@ -136,6 +151,11 @@ export const CippApiDialog = (props) => {
         // MULTI ROW CASES
         if (Array.isArray(row)) {
           const arrayData = row.map((singleRow) => {
+            const commonData = {
+              tenantFilter: getRowTenantFilter(singleRow),
+              ...formData,
+              ...addedFieldData,
+            };
             const itemData = { ...commonData };
             Object.keys(processedActionData).forEach((key) => {
               const rowValue = singleRow[processedActionData[key]];
@@ -163,6 +183,14 @@ export const CippApiDialog = (props) => {
           return;
         }
       }
+
+      // SINGLE ROW CASE
+      const commonData = {
+        tenantFilter: getRowTenantFilter(row),
+        ...formData,
+        ...addedFieldData,
+      };
+
       // ✅ FIXED: DIRECT MERGE INSTEAD OF CORRUPT TRANSFORMATION
       finalData = {
         ...commonData,
@@ -193,7 +221,6 @@ export const CippApiDialog = (props) => {
     }
   }, [actionPostRequest.isSuccess, actionGetRequest.isSuccess]);
 
-  const formHook = useForm();
   const onSubmit = (data) => handleActionClick(row, api, data);
   const selectedType = api.type === "POST" ? actionPostRequest : actionGetRequest;
 
@@ -352,7 +379,7 @@ export const CippApiDialog = (props) => {
               <Button
                 variant="contained"
                 type="submit"
-                disabled={isFormSubmitted && !allowResubmit}
+                disabled={!isValid || (isFormSubmitted && !allowResubmit)}
               >
                 {isFormSubmitted && allowResubmit ? "Reconfirm" : "Confirm"}
               </Button>
